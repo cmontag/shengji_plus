@@ -144,7 +144,7 @@ class ChaodiModule(DMCModule):
             ])
             x_batch[i] = torch.cat([state_tensor, ac.tensor])
             gt_rewards[i] = rw
-        device = 'cuda' if torch.cuda.is_available() else 'cpu' # next(self._model.parameters()).device
+        device = next(self._model.parameters()).device
         return x_batch.to(device), gt_rewards.to(device)
 
 
@@ -154,7 +154,8 @@ class MainModule(DMCModule):
 
         self.sac = sac
         self.use_oracle = use_oracle
-        self.log_alpha = torch.tensor(1.0).log().cuda()
+        _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.log_alpha = torch.tensor(1.0).log().to(_device)
         self.log_alpha.requires_grad = True
         self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=3e-4)
 
@@ -292,26 +293,27 @@ class DMCAgent(SJAgent):
 
     def load_models_from_disk(self, train_models):
         # Load models for DMC
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         loaded_models = True
-        declare_model: nn.Module = train_models.DeclarationModel().cuda()
+        declare_model: nn.Module = train_models.DeclarationModel().to(device)
         if os.path.exists(f'{self.name}/declare.pt'):
-            declare_model.load_state_dict(torch.load(f'{self.name}/declare.pt', map_location='cuda'), strict=False)
+            declare_model.load_state_dict(torch.load(f'{self.name}/declare.pt', map_location=device), strict=False)
             print("Using loaded model for declaration")
         else:
             loaded_models = False
         self.declare_module.load_model(declare_model)
 
-        kitty_model: nn.Module = train_models.KittyModel().cuda()
+        kitty_model: nn.Module = train_models.KittyModel().to(device)
         if os.path.exists(f'{self.name}/kitty.pt'):
-            kitty_model.load_state_dict(torch.load(f'{self.name}/kitty.pt', map_location='cuda'), strict=False)
+            kitty_model.load_state_dict(torch.load(f'{self.name}/kitty.pt', map_location=device), strict=False)
             print("Using loaded model for kitty")
         else:
             loaded_models = False
         self.kitty_module.load_model(kitty_model)
 
-        chaodi_model: nn.Module = train_models.ChaodiModel().cuda()
+        chaodi_model: nn.Module = train_models.ChaodiModel().to(device)
         if os.path.exists(f'{self.name}/chaodi.pt'):
-            chaodi_model.load_state_dict(torch.load(f'{self.name}/chaodi.pt', map_location='cuda'), strict=False)
+            chaodi_model.load_state_dict(torch.load(f'{self.name}/chaodi.pt', map_location=device), strict=False)
             print("Using loaded model for chaodi")
         else:
             loaded_models = False
@@ -329,9 +331,9 @@ class DMCAgent(SJAgent):
             print(f"Resuming with remaining oracle duration {oracle_duration}")
         except Exception as e:
             loaded_models = False
-        main_model: nn.Module = train_models.MainModel(use_oracle=self.main_module.use_oracle).cuda()
+        main_model: nn.Module = train_models.MainModel(use_oracle=self.main_module.use_oracle).to(device)
         if os.path.exists(f'{self.name}/main.pt'):
-            main_model.load_state_dict(torch.load(f'{self.name}/main.pt', map_location='cuda'), strict=False)
+            main_model.load_state_dict(torch.load(f'{self.name}/main.pt', map_location=device), strict=False)
             print("Using loaded model for main game")
         else:
             loaded_models = False
