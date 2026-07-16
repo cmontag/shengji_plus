@@ -11,7 +11,7 @@ from .CardSet import CardSet, MoveType
 import logging
 
 class Game:
-    def __init__(self, dominant_rank=2, dealer_position: AbsolutePosition = None, enable_chaodi = True, enable_combos = False, deck: List[str] = None, is_warmup_game=False, oracle_value=0.0, combo_penalty=0.1, combo_alternation=False) -> None:
+    def __init__(self, dominant_rank=2, dealer_position: AbsolutePosition = None, enable_chaodi = True, enable_combos = False, deck: List[str] = None, is_warmup_game=False, oracle_value=0.0, combo_penalty=0.1, combo_alternation=False, combo_component_limit: Union[int, None] = 3) -> None:
         # Player information
         self.hands = {
             AbsolutePosition.NORTH: CardSet(),
@@ -70,6 +70,10 @@ class Game:
         self.consecutive_moves = 0
         self.combo_penalty = combo_penalty
         self.combo_alternation = combo_alternation
+        # None = no cap (all-human games). Integer caps components (initial
+        # LeadAction + AppendLeadActions) at that count — needed for CPU
+        # training so the action space stays bounded.
+        self.combo_component_limit = combo_component_limit
     @property
     def dominant_suit(self):
         return self.declarations[-1].suit if self.declarations else TrumpSuit.XJ
@@ -123,7 +127,7 @@ class Game:
                 remaining_cards.remove_cardset(current_action)
                 # complement = self.unplayed_cards.copy()
                 # complement.remove_cardset(current_action)
-                if self.consecutive_moves < 3:
+                if self.combo_component_limit is None or self.consecutive_moves < self.combo_component_limit:
                     for move in remaining_cards.get_leading_moves(self.dominant_suit, self.dominant_rank):
                         actions.append(AppendLeadAction(current_action, move))
                 actions.append(EndLeadAction(MoveType.Combo(current_action)))

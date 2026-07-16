@@ -226,7 +226,6 @@ class CardSet:
             for card in self.card_list():
                 cards_by_suit[get_suit(card, dominant_suit, dominant_rank)].add_card(card)
             for suit, suit_cardset in cards_by_suit.items():
-                if suit == CardSuit.TRUMP: continue
                 records = set()
                 for size in range(1, suit_cardset.size + 1):
                     for combo in itertools.combinations(suit_cardset.card_list(), size):
