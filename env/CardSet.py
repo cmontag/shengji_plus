@@ -484,26 +484,42 @@ class CardSet:
                 if self_suit == CardSuit.TRUMP or (self_suit == target_suit and self_max_rank > target_max_rank):
                     return [first_component]
         elif isinstance(move, MoveType.Combo):
-            if self_suit != CardSuit.TRUMP and self_suit != target_suit: return None
-
             target_components = move.get_components(dominant_suit, dominant_rank)
-            target_max_component = max(target_components, key=lambda c: c.cardset.size)
-            possible_matches = [c for c in self_components if type(c) == type(target_max_component) and c.cardset.size == target_max_component.cardset.size]
 
-            if not possible_matches:
+            same_suit_count = self.count_suit(target_suit, dominant_suit, dominant_rank)
+            trump_count = self.count_suit(CardSuit.TRUMP, dominant_suit, dominant_rank)
+            all_same_suit = (same_suit_count == self.size)
+            all_trump_ruff = target_suit != CardSuit.TRUMP and trump_count == self.size and not all_same_suit
+            if not all_same_suit and not all_trump_ruff:
                 return None
-            elif len(target_components) == 1:
-                return [first_component] # This is the only component in the combo, and it's matched by the current player, so it's beaten
-            else:
-                remaining_cards = CardSet(self._cards)
-                remaining_cards.remove_cardset(possible_matches[0].cardset)
-                remaining_target = CardSet(move.cardset._cards)
-                remaining_target.remove_cardset(target_max_component.cardset)
-                rest: Union[None, List[MoveType]] = remaining_cards.is_bigger_than(MoveType.Combo(remaining_target), dominant_suit, dominant_rank)
-                if rest:
-                    return [first_component] + rest
-                else:
+
+            def _rank(component: MoveType) -> int:
+                return max(get_rank(c, dominant_suit, dominant_rank) for c in component.cardset.card_list())
+            def _shape(component: MoveType):
+                return (type(component), component.cardset.size)
+
+            # Cover largest targets first so a rare high trump isn't spent on a small single.
+            used: List[MoveType] = []
+            remaining = CardSet(self._cards)
+            for target_c in sorted(target_components, key=lambda c: -c.cardset.size):
+                target_shape = _shape(target_c)
+                target_rank = _rank(target_c)
+                best: Union[MoveType, None] = None
+                best_rank = -1
+                for candidate in remaining.get_leading_moves(dominant_suit, dominant_rank):
+                    if _shape(candidate) != target_shape: continue
+                    c_rank = _rank(candidate)
+                    if not all_trump_ruff and c_rank <= target_rank: continue
+                    # Prefer the lowest matching component so the highs stay for later targets.
+                    if best is None or c_rank < best_rank:
+                        best = candidate
+                        best_rank = c_rank
+                if best is None:
                     return None
+                used.append(best)
+                remaining.remove_cardset(best.cardset)
+
+            return used
         else:
             raise AssertionError("Shouldn't get here")
 

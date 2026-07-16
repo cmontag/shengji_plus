@@ -276,6 +276,134 @@ class TestCardSet(unittest.TestCase):
         self.assertFalse(option2.is_bigger_than(MoveType.Combo(target2), TrumpSuit.HEART, 2))
         self.assertFalse(option2.is_bigger_than(MoveType.Combo(target2), TrumpSuit.DJ, 6))
 
+    def test_same_suit_combo_needs_higher_rank_at_every_component(self):
+        # Regression: a low pair + low single in the same suit used to
+        # "beat" a high pair + high single because the combo branch of
+        # is_bigger_than short-circuited on matching shape without any
+        # rank comparison. Concretely: W leads A♥ + 8♥8♥, N follows
+        # 4♥4♥ + 3♥ — N was incorrectly awarded the trick.
+        target = MoveType.Combo(CardSet({'A♥': 1, '8♥': 2}))
+        follower = CardSet({'4♥': 2, '3♥': 1})
+        # Hearts non-trump (dom 2, trump = spades): same-suit follow with
+        # every component strictly lower — must NOT beat.
+        self.assertIsNone(follower.is_bigger_than(target, TrumpSuit.SPADE, 2))
+        # Hearts IS trump: still same-suit follow, still every component
+        # lower — must NOT beat.
+        self.assertIsNone(follower.is_bigger_than(target, TrumpSuit.HEART, 5))
+
+        # Sanity: same-shape same-suit with every component strictly
+        # higher does beat.
+        target_b = MoveType.Combo(CardSet({'K♦': 1, '4♦': 2}))
+        beater = CardSet({'A♦': 1, '5♦': 2})
+        self.assertIsNotNone(beater.is_bigger_than(target_b, TrumpSuit.SPADE, 2))
+        # Same-shape but ONE component fails to outrank → must NOT beat.
+        near_miss = CardSet({'A♦': 1, '3♦': 2})   # A > K ✓ but 3 < 4 ✗
+        self.assertIsNone(near_miss.is_bigger_than(target_b, TrumpSuit.SPADE, 2))
+
+    def test_trump_ruff_of_nontrump_combo_needs_matching_shape(self):
+        # All-trump follow with matching shape beats a non-trump combo
+        # (no rank comparison — trump auto-dominates).
+        target = MoveType.Combo(CardSet({'A♥': 1, '8♥': 2}))  # non-trump when trump=spades
+        # Follower plays a trump pair + trump single, matching shape.
+        ruff = CardSet({'6♠': 2, '3♠': 1})
+        self.assertIsNotNone(ruff.is_bigger_than(target, TrumpSuit.SPADE, 2))
+        # Same-total-cards but wrong shape (three singles, no pair) → does not beat.
+        wrong_shape = CardSet({'6♠': 1, '3♠': 1, '4♠': 1})
+        self.assertIsNone(wrong_shape.is_bigger_than(target, TrumpSuit.SPADE, 2))
+        # Mixed trump + non-trump-off-suit follow can never beat.
+        mixed = CardSet({'6♠': 2, '3♣': 1})  # 3♣ is non-trump, non-target-suit
+        self.assertIsNone(mixed.is_bigger_than(target, TrumpSuit.SPADE, 2))
+
+    def test_trump_vs_trump_combo_needs_higher_rank(self):
+        # When the leader's combo IS trump, a trump follow must strictly
+        # outrank every component — trump auto-beat doesn't apply.
+        target = MoveType.Combo(CardSet({'A♥': 1, '8♥': 2}))  # trump when trump=hearts
+        # Lower trump pair + lower trump single: does not beat.
+        low = CardSet({'4♥': 2, '3♥': 1})
+        self.assertIsNone(low.is_bigger_than(target, TrumpSuit.HEART, 2))
+        # Higher trump pair + higher trump single: beats.
+        high = CardSet({'K♥': 2, 'J♥': 1})  # pair-K > pair-8 ✓, single-J < single-A ✗
+        self.assertIsNone(high.is_bigger_than(target, TrumpSuit.HEART, 2))
+        # Jokers beat non-joker trump — pair of XJs and the DJ single tops any trump combo shape.
+        top = CardSet({'XJ': 2, 'DJ': 1})
+        self.assertIsNotNone(top.is_bigger_than(target, TrumpSuit.HEART, 2))
+
+    def test_round_winner_trick_outcomes(self):
+        # Exhaustive coverage over lead type × winner type. Each block is
+        # (players, trump_suit, dominant_rank, expected_winner_index,
+        # short_note). Lets us regression-test every category of trick
+        # resolution end-to-end through round_winner in one place.
+        cases = [
+            # ---- Single leads ----
+            # Leader wins: nobody higher / trump.
+            ([CardSet({'K♦': 1}), CardSet({'9♦': 1}), CardSet({'3♣': 1}), CardSet({'4♥': 1})],
+             TrumpSuit.SPADE, 2, 0, 'single leader wins vs lower same-suit and off-suit'),
+            # Same-suit follower beats with higher rank.
+            ([CardSet({'K♦': 1}), CardSet({'A♦': 1}), CardSet({'3♣': 1}), CardSet({'4♥': 1})],
+             TrumpSuit.SPADE, 2, 1, 'single: same-suit ace beats king'),
+            # Trump ruff.
+            ([CardSet({'K♦': 1}), CardSet({'9♦': 1}), CardSet({'3♠': 1}), CardSet({'4♥': 1})],
+             TrumpSuit.SPADE, 2, 2, 'single: trump ruff beats non-trump lead'),
+            # Two trump ruffs, higher wins.
+            ([CardSet({'K♦': 1}), CardSet({'3♠': 1}), CardSet({'A♠': 1}), CardSet({'DJ': 1})],
+             TrumpSuit.SPADE, 2, 3, 'single: highest of multiple trumps wins'),
+            # Trump lead can't be beat by off-suit.
+            ([CardSet({'A♠': 1}), CardSet({'K♦': 1}), CardSet({'K♣': 1}), CardSet({'K♥': 1})],
+             TrumpSuit.SPADE, 2, 0, 'trump single lead survives non-trump follows'),
+
+            # ---- Pair leads ----
+            ([CardSet({'K♦': 2}), CardSet({'9♦': 2}), CardSet({'3♣': 2}), CardSet({'4♥': 2})],
+             TrumpSuit.SPADE, 2, 0, 'pair leader wins vs lower same-suit and off-suit pairs'),
+            ([CardSet({'K♦': 2}), CardSet({'A♦': 2}), CardSet({'3♣': 2}), CardSet({'4♥': 2})],
+             TrumpSuit.SPADE, 2, 1, 'pair: same-suit higher pair beats'),
+            ([CardSet({'K♦': 2}), CardSet({'9♦': 2}), CardSet({'3♠': 2}), CardSet({'4♥': 2})],
+             TrumpSuit.SPADE, 2, 2, 'pair: trump pair ruffs non-trump pair'),
+            # Trump singles can't ruff a non-trump pair.
+            ([CardSet({'K♦': 2}), CardSet({'9♦': 2}),
+              CardSet({'3♠': 1, 'A♠': 1}), CardSet({'4♥': 2})],
+             TrumpSuit.SPADE, 2, 0, 'pair: two non-pair trumps do NOT beat a pair'),
+
+            # ---- Tractor leads ----
+            ([CardSet({'9♥': 2, '10♥': 2}), CardSet({'A♥': 2, 'K♥': 2}),
+              CardSet({'6♠': 2, '7♠': 2}), CardSet({'2♠': 2, '2♣': 2})],
+             TrumpSuit.SPADE, 2, 3, 'tractor: biggest trump tractor wins'),
+            ([CardSet({'9♥': 2, '10♥': 2}), CardSet({'A♥': 2, 'K♥': 2}),
+              CardSet({'8♦': 1, '9♦': 1, '2♣': 1, '3♣': 1}),  # not a tractor: singles fill
+              CardSet({'4♣': 1, '5♣': 1, '6♣': 1, '7♣': 1})],
+             TrumpSuit.SPADE, 2, 1, 'tractor: non-tractor same-suit follows do NOT beat'),
+
+            # ---- Combo leads (pair + single) ----
+            # Regression case: same-suit lower must NOT beat.
+            ([CardSet({'A♥': 1, '8♥': 2}), CardSet({'4♥': 2, '3♥': 1}),
+              CardSet({'6♣': 1, '7♥': 1, 'DJ': 1}),  # mixed fill
+              CardSet({'A♦': 1, 'K♥': 1, '6♥': 1})],  # mixed fill
+             TrumpSuit.SPADE, 2, 0, 'combo: mixed-suit fills and lower same-suit all fail'),
+            # Non-trump combo, all-trump ruff of matching shape wins.
+            ([CardSet({'A♦': 1, '8♦': 2}),   # non-trump combo (trump=spades)
+              CardSet({'6♦': 1, '7♦': 1, '9♦': 1}),  # non-trump singles: shape mismatch
+              CardSet({'3♠': 2, '4♠': 1}),   # all-trump matching shape
+              CardSet({'10♦': 1, 'J♦': 2})],  # same-suit HIGHER: pair-J > pair-8, single-10 < single-A — near miss
+             TrumpSuit.SPADE, 2, 2, 'combo: only clean trump ruff of matching shape beats'),
+            # Two trump ruffs of matching shape, higher rank wins.
+            ([CardSet({'A♦': 1, '8♦': 2}),   # non-trump combo
+              CardSet({'6♦': 1, '7♦': 1, '9♦': 1}),
+              CardSet({'3♠': 2, '4♠': 1}),   # trump ruff
+              CardSet({'K♠': 2, 'Q♠': 1})],   # bigger trump ruff
+             TrumpSuit.SPADE, 2, 3, 'combo: highest trump ruff wins when two ruff'),
+
+            # ---- Combo leads (pair + pair + single) ----
+            # Sanity: leader wins when nobody beats.
+            ([CardSet({'A♥': 2, 'K♥': 1, 'Q♥': 2}),
+              CardSet({'5♥': 2, '3♥': 1, '7♥': 1, 'J♥': 1}),  # only one pair, mixed
+              CardSet({'2♣': 1, '3♣': 1, '4♣': 1, '5♣': 1, '6♣': 1}),  # off-suit
+              CardSet({'2♦': 1, '3♦': 1, '4♦': 1, '5♦': 1, '6♦': 1})],  # off-suit
+             TrumpSuit.SPADE, 8, 0, 'combo (2 pairs + single): leader keeps when no one matches shape'),
+        ]
+
+        for i, (players, trump, dom, expected, note) in enumerate(cases):
+            got = CardSet.round_winner(players, trump, dom)
+            self.assertEqual(got, expected, f"case #{i} ({note}): expected {expected}, got {got}")
+
     def test_multi_compare_combo(self):
         # Player0 hands leading position to player2 in an NT game
         player0_cards = CardSet({'10♥': 1})
