@@ -27,6 +27,10 @@ actor_processes = []
 
 # Parallelized data sampling
 def sampler(idx: int, player: SJAgent, discount, decay_factor, global_main_queue, global_chaodi_queue, global_declare_queue, global_kitty_queue, enable_chaodi: bool, enable_combos: bool, epsilon=0.02, reuse_times=0, oracle_duration=0, game_count=0, log_file='', combo_penalty=0.1, combo_alternation=False):
+    # Each actor is its own process running CPU-bound Python self-play; pin it to
+    # one torch thread so N actors don't each spawn an OpenMP pool and oversubscribe
+    # the cores. Without this, throughput on many-core boxes collapses.
+    torch.set_num_threads(1)
     logging.getLogger().setLevel(logging.ERROR)
     # logging.basicConfig(format="%(process)d %(message)s", filename=log_file, encoding='utf-8', level=logging.DEBUG)
     train_sim = Simulation(
@@ -67,6 +71,9 @@ def sampler(idx: int, player: SJAgent, discount, decay_factor, global_main_queue
         global_kitty_queue.put(local_kitty)
 
 def evaluator(idx: int, player1: SJAgent, player2: SJAgent, enable_chaodi: bool, enable_combos: bool, eval_size: int, eval_results_queue: Queue, verbose=False, learn_from_eval=False, log_file=''):
+    # See sampler(): pin each eval process to one torch thread to avoid OpenMP
+    # oversubscription across processes.
+    torch.set_num_threads(1)
     logging.getLogger().setLevel(logging.ERROR)
     # if not verbose:
     #     logging.basicConfig(format="%(process)d %(message)s", filename=log_file, encoding='utf-8', level=logging.DEBUG)
