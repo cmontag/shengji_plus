@@ -145,6 +145,12 @@ class CardSet:
     def add_card(self, card: str, count=1):
         assert card in self._cards, "Card must be a valid string representation"
         self._cards[card] += count
+
+    def reveal_at_least(self, card: str, count: int):
+        "Record `count` copies of `card` as public knowledge without ever exceeding the maximum verifiably seen at once. Revealing a single of a card across two separate occasions leaves the public count at 1; only revealing a pair together raises it to 2. Idempotent — re-revealing the same or fewer copies is a no-op."
+        assert card in self._cards, "Card must be a valid string representation"
+        if self._cards[card] < count:
+            self._cards[card] = count
     
     def add_cardset(self, cardset: 'CardSet'):
         for card in cardset.card_list():

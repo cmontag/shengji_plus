@@ -200,7 +200,10 @@ class Game:
                 self.dealer_position = player_position # Round 1, player becomes dealer (抢庄)
                 self.kitty_owner = player_position
             self.declarations.append(action.declaration)
-            self.public_cards[player_position].add_card(*action.declaration.get_card(self.dominant_rank))
+            # Reveal, don't accumulate: declaring a single (x1) then upgrading
+            # to a pair (x2) of the same rank card must leave 2 copies public,
+            # not 1+2=3. reveal_at_least keeps the max verifiably shown at once.
+            self.public_cards[player_position].reveal_at_least(*action.declaration.get_card(self.dominant_rank))
             logging.info(f"Player {player_position} declared {action.declaration.suit} x {1 + int(action.declaration.level >= 1)}")
             logging.info(f"Player {player_position} has cards: {self.hands[player_position]}")
             
@@ -295,7 +298,7 @@ class Game:
             self.declarations.append(action.declaration)
             self.hands[player_position].add_cardset(self.kitty) # Player picks up kitty
             self.kitty.remove_cardset(self.kitty)
-            self.public_cards[player_position].add_card(*action.declaration.get_card(self.dominant_rank))
+            self.public_cards[player_position].reveal_at_least(*action.declaration.get_card(self.dominant_rank))
             self.kitty_owner = player_position
             logging.info(f"Player {player_position} chose to chaodi using {action.declaration.suit}")
             self.stage = Stage.kitty_stage
@@ -338,8 +341,7 @@ class Game:
                 failed_cards = action.move.cardset
                 failed_cards.remove_cardset(penalty_move)
                 for (card, count) in failed_cards.count_iterator():
-                    if self.public_cards[player_position]._cards[card] < count:
-                        self.public_cards[player_position]._cards[card] = count
+                    self.public_cards[player_position].reveal_at_least(card, count)
 
                 logging.debug(f"Combo move failed. Player {player_position.value} forced to play {penalty_move}")
                 return player_position.next_position, -self.combo_penalty
