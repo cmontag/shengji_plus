@@ -378,10 +378,12 @@ class Game:
                     logging.debug(f"Points per round: {self.points_per_round}")
                     if not declarer_wins_round:
                         multiplier = MoveType.Combo(moves[winner_index]).get_multiplier(self.dominant_suit, self.dominant_rank)
+                        self.kitty_multiplier = multiplier
                         self.opponent_points += self.kitty.total_points() * multiplier
                         self.points_per_round[-1] -= self.kitty.total_points() * multiplier # Opponents earned points from kitty
                         logging.info(f"Opponents received {self.kitty.total_points()} x {multiplier} from kitty. Final points: {self.opponent_points}")
                     else:
+                        self.kitty_multiplier = 2  # defenders bank a defensive x2 (not added to defender_points; used for reporting)
                         self.points_per_round[-1] += self.kitty.total_points() * 2 # The points which the defenders prevented from being stolen
                     
                     opponent_reward = 0
